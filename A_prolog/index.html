@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Intérprete de Prolog (100% local)</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen">
+<header class="bg-white border-b-4 border-[#1b2a5e]">
+  <div class="max-w-6xl mx-auto px-4 py-3 flex items-center gap-3">
+    <img src="logo.png" alt="Logo" class="h-12 w-12 object-contain" onerror="this.style.display='none'">
+    <div class="leading-tight">
+      <h1 class="font-bold text-[#1b2a5e] text-lg">Intérprete de Prolog</h1>
+      <p class="text-sm text-slate-500">Programación Lógica, Unidad III · Motor 100% en JavaScript, sin API</p>
+    </div>
+  </div>
+</header>
+
+<main class="max-w-6xl mx-auto px-4 py-6">
+  <h2 class="text-2xl md:text-3xl font-bold text-[#1b2a5e] mb-1">Pega tu programa Prolog y obtén su resultado</h2>
+  <p class="text-slate-600 mb-5 max-w-3xl">Escribe hechos, reglas y una consulta que empiece con <code class="bg-slate-200 px-1 rounded">?-</code>. El agente ejecuta la consulta en tu navegador, muestra la respuesta y explica los pasos.</p>
+
+  <div class="grid lg:grid-cols-2 gap-5">
+    <section class="bg-white rounded-xl border border-slate-200 overflow-hidden flex flex-col">
+      <div class="flex items-center justify-between gap-2 px-4 py-3 border-b bg-slate-50">
+        <span class="font-mono font-medium text-[#1b2a5e]">programa.pl</span>
+        <label class="text-sm text-slate-500 flex items-center gap-2">Ejemplo
+          <select id="ej" class="border rounded px-2 py-1 text-slate-800 max-w-[12rem]"></select></label>
+      </div>
+      <textarea id="codigo" spellcheck="false" rows="14" aria-label="Código Prolog"
+        class="w-full flex-1 p-4 bg-[#101a40] text-slate-100 font-mono text-sm leading-relaxed outline-none focus:ring-2 focus:ring-cyan-400 resize-y"
+        placeholder="miembro(X, [X|_]).&#10;miembro(X, [_|T]) :- miembro(X, T).&#10;?- miembro(b, [a,b,c])."></textarea>
+      <div class="flex items-center gap-2 px-4 py-3 border-t bg-slate-50">
+        <button id="enviar" class="bg-[#1b2a5e] hover:bg-[#d9267f] text-white font-semibold px-5 py-2 rounded-lg transition">Enviar al agente</button>
+        <button id="limpiar" class="border border-slate-300 hover:border-[#1b2a5e] text-[#1b2a5e] font-semibold px-4 py-2 rounded-lg">Limpiar</button>
+        <span class="ml-auto text-xs text-slate-500 hidden sm:block">Ctrl + Enter para enviar</span>
+      </div>
+    </section>
+
+    <section class="bg-white rounded-xl border border-slate-200 overflow-hidden" aria-live="polite">
+      <div class="px-4 py-3 border-b bg-slate-50 font-semibold text-[#1b2a5e]">Resultado</div>
+      <div id="vacio" class="p-5 text-slate-500">Aquí aparecerá la respuesta del agente. Carga un ejemplo o pega tu programa.</div>
+      <div id="cont" class="p-5 hidden">
+        <p class="font-semibold text-[#1b2a5e] mb-2">Esta es la respuesta:</p>
+        <pre id="resp" class="border-l-4 rounded p-3 font-mono text-lg whitespace-pre-wrap break-words mb-4"></pre>
+        <div id="bsal" class="hidden mb-4"><p class="font-semibold text-[#1b2a5e] mb-1">Salida (write/nl):</p>
+          <pre id="sal" class="bg-slate-100 rounded p-3 font-mono text-sm whitespace-pre-wrap"></pre></div>
+        <div id="bexp"><p class="font-semibold text-[#1b2a5e] mb-1">Explicación:</p>
+          <ul id="exp" class="list-disc pl-5 space-y-1 text-sm max-w-prose"></ul></div>
+      </div>
+    </section>
+  </div>
+
+  <section class="mt-8 pt-5 border-t border-slate-300">
+    <h3 class="font-semibold text-[#1b2a5e] mb-2">Qué interpreta</h3>
+    <div class="flex flex-wrap gap-2 text-sm">
+      <span class="bg-white border rounded-full px-3 py-1">Hechos, reglas y variables</span>
+      <span class="bg-white border rounded-full px-3 py-1">Aritmética (is, mod, comparaciones)</span>
+      <span class="bg-white border rounded-full px-3 py-1">Listas</span>
+      <span class="bg-white border rounded-full px-3 py-1">Negación (\+) y disyunción (;)</span>
+      <span class="bg-white border rounded-full px-3 py-1">Unificación y backtracking</span>
+      <span class="bg-white border rounded-full px-3 py-1">Corte (!) e if-then-else</span>
+    </div>
+  </section>
+</main>
+
+<script>
+/* ===== Términos y unificación ===== */
+let VID=0,trail=[];
+const A=n=>({t:'a',n}),N=v=>({t:'n',v}),V=n=>({t:'v',n,id:++VID,ref:null}),C=(f,a)=>({t:'c',f,a});
+const deref=t=>{while(t.t==='v'&&t.ref)t=t.ref;return t};
+const undo=m=>{while(trail.length>m)trail.pop().ref=null};
+const list=(arr,tail)=>arr.reduceRight((t,x)=>C('.',[x,t]),tail||A('[]'));
+function unify(a,b){a=deref(a);b=deref(b);if(a===b)return true;
+  if(a.t==='v'){a.ref=b;trail.push(a);return true}
+  if(b.t==='v'){b.ref=a;trail.push(b);return true}
+  if(a.t!==b.t)return false;
+  if(a.t==='a')return a.n===b.n; if(a.t==='n')return a.v===b.v;
+  if(a.f!==b.f||a.a.length!==b.a.length)return false;
+  for(let i=0;i<a.a.length;i++)if(!unify(a.a[i],b.a[i]))return false;
+  return true}
+function ren(t,m){t=deref(t);
+  if(t.t==='v'){let v=m.get(t);if(!v){v=V(t.n);m.set(t,v)}return v}
+  return t.t==='c'?C(t.f,t.a.map(x=>ren(x,m))):t}
+function toArr(l){const r=[];l=deref(l);while(l.t==='c'&&l.f==='.'&&l.a.length===2){r.push(l.a[0]);l=deref(l.a[1])}
+  if(!(l.t==='a'&&l.n==='[]'))throw{perr:'ERROR: Arguments are not sufficiently instantiated (lista incompleta)'};return r}
+const isList=l=>{try{toArr(l);return true}catch(e){return false}};
+const ord=t=>t.t==='v'?0:t.t==='n'?1:t.t==='a'?3:4;
+function cmp(a,b){a=deref(a);b=deref(b);if(a===b)return 0;const x=ord(a),y=ord(b);if(x!==y)return x-y;
+  if(a.t==='v')return a.id-b.id; if(a.t==='n')return Math.sign(a.v-b.v);
+  if(a.t==='a')return a.n<b.n?-1:a.n>b.n?1:0;
+  if(a.a.length!==b.a.length)return a.a.length-b.a.length; if(a.f!==b.f)return a.f<b.f?-1:1;
+  for(let i=0;i<a.a.length;i++){const r=cmp(a.a[i],b.a[i]);if(r)return r}return 0}
+
+/* ===== Analizador léxico (expresiones regulares) y sintáctico ===== */
+const TOK=/\s+|%[^\n]*|\/\*[\s\S]*?\*\/|([A-Z_][A-Za-z0-9_]*)|([a-z][A-Za-z0-9_]*)|(\d+\.\d+(?:[eE][+-]?\d+)?|\d+)|'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)"|(:-|\?-|=\.\.|=:=|=\\=|\\==|==|\\=|=<|>=|@<|@>|\*\*|\/\/|->|\\\+|[-+*\/<>=;,!|\[\](){}^]|\.(?=\s|%|$))/y;
+const INFIX={':-':[1200,'xfx'],';':[1100,'xfy'],'|':[1100,'xfy'],'->':[1050,'xfy'],',':[1000,'xfy'],
+ '=':[700,'xfx'],'\\=':[700,'xfx'],'==':[700,'xfx'],'\\==':[700,'xfx'],'is':[700,'xfx'],'=:=':[700,'xfx'],'=\\=':[700,'xfx'],
+ '<':[700,'xfx'],'>':[700,'xfx'],'=<':[700,'xfx'],'>=':[700,'xfx'],'@<':[700,'xfx'],'@>':[700,'xfx'],'=..':[700,'xfx'],
+ '+':[500,'yfx'],'-':[500,'yfx'],'*':[400,'yfx'],'/':[400,'yfx'],'//':[400,'yfx'],'mod':[400,'yfx'],'rem':[400,'yfx'],
+ '**':[200,'xfx'],'^':[200,'xfy']};
+const PREFIX={'-':200,'+':200,'\\+':900,'?-':1200,':-':1200};
+function tokenize(src){const out=[];TOK.lastIndex=0;let m;
+  while(TOK.lastIndex<src.length){const p=TOK.lastIndex;m=TOK.exec(src);
+    if(!m)throw{perr:`Error de sintaxis: carácter inesperado "${src[p]}" (posición ${p}).`};
+    const q=m[4]!==undefined?m[4]:m[5];
+    const k=m[1]?'v':m[2]?'a':m[3]?'n':q!==undefined?'q':m[6]?'p':null;if(!k)continue;
+    const s=m[1]||m[2]||m[3]||(q!==undefined?q.replace(/\\(.)/g,'$1'):m[6]);
+    out.push({k,s,p,e:TOK.lastIndex,lp:src[TOK.lastIndex]==='('})}
+  return out}
+function parseProgram(src){
+  const toks=tokenize(src);let i=0,vars={};
+  const peek=()=>toks[i],next=()=>toks[i++];
+  const err=m=>{throw{perr:'Error de sintaxis: '+m}};
+  const isP=(t,s)=>t&&t.k==='p'&&t.s===s;
+  const expect=s=>{const t=next();if(!isP(t,s))err(`se esperaba "${s}"`+(t?` y se encontró "${t.s}"`:' al final del texto'))};
+  function primary(max){const t=next();if(!t)err('la cláusula está incompleta');
+    if(t.k==='n')return N(parseFloat(t.s));
+    if(t.k==='v'){if(t.s==='_')return V('_');return vars[t.s]||(vars[t.s]=V(t.s))}
+    if(t.k==='a'||t.k==='q'){
+      if(t.lp){next();const a=[parse(999)];while(isP(peek(),',')){next();a.push(parse(999))}expect(')');return C(t.s,a)}
+      return A(t.s)}
+    if(t.s==='('){const x=parse(1200);expect(')');return x}
+    if(t.s==='['){if(isP(peek(),']')){next();return A('[]')}
+      const it=[parse(999)];while(isP(peek(),',')){next();it.push(parse(999))}
+      let tail=A('[]');if(isP(peek(),'|')){next();tail=parse(999)}expect(']');return list(it,tail)}
+    if(t.s==='!')return A('!');
+    if(PREFIX[t.s]!==undefined){const nx=peek();
+      if(t.s==='-'&&nx&&nx.k==='n'){next();return N(-parseFloat(nx.s))}
+      return C(t.s,[parse(Math.min(max,PREFIX[t.s]))])}
+    err(`símbolo inesperado "${t.s}"`)}
+  function parse(max){let left=primary(max);
+    for(;;){const t=peek();if(!t)break;const op=(t.k==='p'||t.k==='a')&&INFIX[t.s];if(!op||op[0]>max)break;
+      next();const right=parse(op[1]==='xfy'?op[0]:op[0]-1);left=C(t.s==='|'?';':t.s,[left,right])}
+    return left}
+  const out=[];
+  while(i<toks.length){vars={};const st=toks[i];
+    if(isP(st,':-')){let j=i;while(j<toks.length&&!isP(toks[j],'.'))j++;
+      out.push({dir:src.slice(st.p,toks[j]?toks[j].e:src.length)});i=j+1;continue}
+    const t=parse(1200),e=next();if(!isP(e,'.'))err('falta el punto "." al final de la cláusula');
+    out.push({t,vars,text:src.slice(st.p,e.e).replace(/\s+/g,' ')})}
+  return out}
+
+/* ===== Biblioteca escrita en Prolog ===== */
+const LIB=`append([],L,L). append([H|T],L,[H|R]):-append(T,L,R).
+member(X,[X|_]). member(X,[_|T]):-member(X,T).
+memberchk(X,L):-member(X,L),!.
+reverse(L,R):-rev(L,[],R). rev([],A,A). rev([H|T],A,R):-rev(T,[H|A],R).
+length([],0). length([_|T],N):-length(T,M),N is M+1.
+nth0(0,[X|_],X). nth0(I,[_|T],X):-I>0,J is I-1,nth0(J,T,X). nth1(I,L,X):-J is I-1,nth0(J,L,X).
+last([X],X). last([_|T],X):-last(T,X).
+sum_list([],0). sum_list([H|T],S):-sum_list(T,R),S is R+H. sumlist(L,S):-sum_list(L,S).
+max_list([X],X). max_list([H|T],M):-max_list(T,R),M is max(H,R).
+min_list([X],X). min_list([H|T],M):-min_list(T,R),M is min(H,R).
+select(X,[X|T],T). select(X,[H|T],[H|R]):-select(X,T,R).
+delete([],_,[]). delete([H|T],X,R):-H==X,!,delete(T,X,R). delete([H|T],X,[H|R]):-delete(T,X,R).
+permutation([],[]). permutation(L,[H|T]):-select(H,L,R),permutation(R,T).
+once(G):-call(G),!.`;
+let LIBITEMS=null;
+
+/* ===== Motor de inferencia (resolución SLD con backtracking y corte) ===== */
+let db,steps,trace,tcount,flags,out;const LIM=200000,TL=14;
+const key=t=>t.t==='a'?t.n+'/0':t.f+'/'+t.a.length;
+function addClause(t,text,lib){let h=t,b=A('true');
+  if(t.t==='c'&&t.f===':-'&&t.a.length===2){h=t.a[0];b=t.a[1]}h=deref(h);
+  if(h.t!=='a'&&h.t!=='c')throw{perr:'Cabeza de cláusula inválida: '+text};
+  const k=key(h);if(!lib&&db.get(k)&&db.get(k)[0]&&db.get(k)[0].lib)db.set(k,[]);
+  if(!db.has(k))db.set(k,[]);db.get(k).push({head:h,body:b,text,lib})}
+const OPS2={'+':(x,y)=>x+y,'-':(x,y)=>x-y,'*':(x,y)=>x*y,'min':Math.min,'max':Math.max,'**':Math.pow,'^':Math.pow};
+function ev(t){t=deref(t);
+  if(t.t==='n')return t.v;
+  if(t.t==='v')throw{perr:'ERROR: Arguments are not sufficiently instantiated'};
+  if(t.t==='a'){const c={pi:Math.PI,e:Math.E,inf:Infinity}[t.n];if(c!==undefined)return c;
+    throw{perr:`ERROR: Arithmetic: evaluable ${t.n}/0 does not exist`}}
+  const f=t.f,a=t.a.map(ev);
+  if(a.length===1){const x=a[0];const u={'-':-x,'+':x,abs:Math.abs(x),sqrt:Math.sqrt(x),sign:Math.sign(x),floor:Math.floor(x),ceiling:Math.ceil(x),round:Math.round(x),truncate:Math.trunc(x),sin:Math.sin(x),cos:Math.cos(x),exp:Math.exp(x),log:Math.log(x)}[f];if(u!==undefined)return u}
+  if(a.length===2){const[x,y]=a;if(OPS2[f])return OPS2[f](x,y);
+    if(['/','//','mod','rem','div'].includes(f)&&y===0)throw{perr:'ERROR: Arithmetic: evaluation error: zero_divisor'};
+    if(f==='/')return x/y; if(f==='//')return Math.trunc(x/y); if(f==='mod')return((x%y)+y)%y;
+    if(f==='rem')return x%y; if(f==='div')return Math.floor(x/y)}
+  throw{perr:`ERROR: Arithmetic: evaluable ${f}/${a.length} does not exist`}}
+function show(t,max=1200){t=deref(t);
+  if(t.t==='n')return String(t.v); if(t.t==='v')return '_G'+t.id; if(t.t==='a')return t.n;
+  if(t.f==='.'&&t.a.length===2){const it=[];let x=t;
+    while(x.t==='c'&&x.f==='.'&&x.a.length===2){it.push(show(x.a[0],999));x=deref(x.a[1])}
+    return '['+it.join(',')+(x.t==='a'&&x.n==='[]'?'':'|'+show(x,999))+']'}
+  if(t.a.length===2&&INFIX[t.f]){const[p,ty]=INFIX[t.f];
+    const s=show(t.a[0],ty[0]==='y'?p:p-1)+(/^[a-z]/.test(t.f)?' '+t.f+' ':t.f)+show(t.a[1],ty[2]==='y'?p:p-1);
+    return p>max?'('+s+')':s}
+  if(t.a.length===1&&t.f==='-')return '-'+show(t.a[0],200);
+  return t.f+'('+t.a.map(x=>show(x,999)).join(',')+')'}
+const TEST={'var/1':t=>t.t==='v','nonvar/1':t=>t.t!=='v','atom/1':t=>t.t==='a','number/1':t=>t.t==='n','integer/1':t=>t.t==='n'&&Number.isInteger(t.v),'atomic/1':t=>t.t==='a'||t.t==='n','compound/1':t=>t.t==='c','is_list/1':isList};
+const CMPN={'=:=/2':(x,y)=>x===y,'=\\=/2':(x,y)=>x!==y,'</2':(x,y)=>x<y,'>/2':(x,y)=>x>y,'=</2':(x,y)=>x<=y,'>=/2':(x,y)=>x>=y};
+const CMPT={'==/2':r=>r===0,'\\==/2':r=>r!==0,'@</2':r=>r<0,'@>/2':r=>r>0};
+
+function* solve(g,cut){
+  g=deref(g);
+  if(++steps>LIM)throw{perr:'ERROR: Se excedió el límite de inferencias (posible recursión infinita).'};
+  if(g.t==='v')throw{perr:'ERROR: Arguments are not sufficiently instantiated'};
+  if(g.t==='n')throw{perr:'ERROR: Type error: callable expected, found '+g.v};
+  const k=key(g),a=g.a||[];
+  if(TEST[k]){if(TEST[k](deref(a[0])))yield;return}
+  if(CMPN[k]){if(CMPN[k](ev(a[0]),ev(a[1])))yield;return}
+  if(CMPT[k]){if(CMPT[k](cmp(a[0],a[1])))yield;return}
+  let m=trail.length;
+  switch(k){
+    case 'true/0':yield;return;
+    case 'fail/0':case 'false/0':return;
+    case '!/0':flags.cut=true;yield;cut.done=true;return;
+    case ',/2':for(const _ of solve(a[0],cut)){yield*solve(a[1],cut);if(cut.done)return}return;
+    case ';/2':{flags.or=true;const l=deref(a[0]);
+      if(l.t==='c'&&l.f==='->'&&l.a.length===2){let ok=false;
+        for(const _ of solve(l.a[0],{done:false})){ok=true;yield*solve(l.a[1],cut);break}
+        if(!ok){undo(m);yield*solve(a[1],cut)}return}
+      yield*solve(l,cut);if(cut.done)return;undo(m);yield*solve(a[1],cut);return}
+    case '->/2':for(const _ of solve(a[0],{done:false})){yield*solve(a[1],cut);break}return;
+    case '\\+/1':{flags.neg=true;let ok=false;for(const _ of solve(a[0],{done:false})){ok=true;break}undo(m);if(!ok)yield;return}
+    case 'call/1':yield*solve(a[0],{done:false});return;
+    case '=/2':if(unify(a[0],a[1]))yield;undo(m);return;
+    case '\\=/2':{const r=unify(a[0],a[1]);undo(m);if(!r)yield;return}
+    case 'is/2':{flags.is=true;if(unify(a[0],N(ev(a[1]))))yield;undo(m);return}
+    case 'findall/3':{const r=[];for(const _ of solve(a[1],{done:false}))r.push(ren(a[0],new Map()));undo(m);
+      if(unify(a[2],list(r)))yield;undo(m);return}
+    case 'forall/2':{let ok=true;for(const _ of solve(a[0],{done:false})){let any=false;
+      for(const _2 of solve(a[1],{done:false})){any=true;break}if(!any){ok=false;break}}undo(m);if(ok)yield;return}
+    case 'between/3':{const lo=ev(a[0]),h=deref(a[1]),hi=h.t==='a'?Infinity:ev(h),x=deref(a[2]);
+      if(x.t==='n'){if(x.v>=lo&&x.v<=hi)yield;return}
+      for(let i=lo;i<=hi;i++){m=trail.length;unify(x,N(i));yield;undo(m)}return}
+    case 'msort/2':case 'sort/2':{let r=toArr(a[0]).sort(cmp);
+      if(k==='sort/2')r=r.filter((x,i)=>i===0||cmp(x,r[i-1])!==0);
+      if(unify(a[1],list(r)))yield;undo(m);return}
+    case 'atom_length/2':{const x=deref(a[0]);if(unify(a[1],N(String(x.t==='n'?x.v:x.n).length)))yield;undo(m);return}
+    case 'write/1':case 'print/1':out.push(show(a[0]));yield;return;
+    case 'writeln/1':out.push(show(a[0])+'\n');yield;return;
+    case 'nl/0':out.push('\n');yield;return;
+    case 'assert/1':case 'assertz/1':{const t=ren(a[0],new Map());addClause(t,show(t)+'.');yield;return}
+  }
+  const cl=db.get(k);
+  if(!cl)throw{perr:`ERROR: Unknown procedure: ${k}`};
+  const label=tcount<TL?show(g):'';let matched=0;const my={done:false};
+  for(let i=0;i<cl.length;i++){const c=cl[i];m=trail.length;const mp=new Map();
+    if(unify(g,ren(c.head,mp))){matched++;tcount++;
+      if(tcount<=TL)trace.push(`Llama a ${label} → usa la cláusula ${i+1} de ${k}: ${c.text}`);
+      for(const _ of solve(ren(c.body,mp),my))yield}
+    undo(m);if(my.done)break}
+  if(!matched){tcount++;if(tcount<=TL)trace.push(`Llama a ${label} → ninguna cláusula de ${k} unifica, así que falla y Prolog retrocede (backtracking).`)}}
+
+/* ===== Ejecución de consultas y explicación ===== */
+function runQuery(goal,vars){
+  trail=[];steps=0;trace=[];tcount=0;flags={};out=[];
+  const names=Object.keys(vars).filter(n=>!n.startsWith('_'));const sols=[];let error=null,more=false;
+  try{for(const _ of solve(goal,{done:false})){
+      sols.push(names.map(n=>n+' = '+show(vars[n],699)).join(',\n'));
+      if(!names.length)break;if(sols.length>=20){more=true;break}}}
+  catch(e){if(e.perr)error=e.perr;else if(e instanceof RangeError)error='ERROR: Stack limit exceeded (recursión demasiado profunda).';else throw e}
+  let ans;
+  if(error)ans=(sols.length?sols.join(' ;\n')+' ;\n':'')+error;
+  else if(!sols.length)ans='false.';
+  else if(!names.length)ans='true.';
+  else ans=sols.join(' ;\n')+(more?' ;\n… (hay más soluciones)':'.');
+  const ex=[`Se evaluó ?- ${show(goal)} con un motor de resolución SLD escrito en JavaScript: busca cláusulas en orden, unifica y retrocede si falla.`,...trace.map(x=>'▸ '+x)];
+  if(tcount>TL)ex.push(`… y ${tcount-TL} pasos más.`);
+  if(error)ex.push('Ocurrió un error durante la evaluación: '+error);
+  else ex.push(sols.length?`Se encontró${sols.length>1?'ron':''} ${sols.length} solución${sols.length>1?'es':''}.`:'No existe ninguna forma de demostrar la consulta con las cláusulas dadas; por eso Prolog responde false.');
+  if(flags.cut)ex.push('Corte (!): al ejecutarse, se descartan las alternativas pendientes de ese predicado (otras cláusulas y puntos de elección previos en la regla).');
+  if(flags.neg)ex.push('Negación como fallo (\\+): \\+ G tiene éxito solo cuando G no se puede demostrar; no deja enlaces de variables.');
+  if(flags.or)ex.push('Disyunción (;): primero se prueba la rama izquierda y, al retroceder, la derecha.');
+  if(flags.is)ex.push('Aritmética: is/2 evalúa la expresión de la derecha y unifica el resultado; las comparaciones (<, >=, =:=) evalúan ambos lados.');
+  return{ans,error,ex,out:out.join('')}}
+
+function ejecutar(){
+  const src=document.getElementById('codigo').value;let items;
+  try{items=parseProgram(src)}catch(e){if(e.perr)return pintar(e.perr,true,['Corrige la sintaxis: cada cláusula termina con punto y las variables empiezan con mayúscula.'],'');throw e}
+  try{
+    if(!LIBITEMS)LIBITEMS=parseProgram(LIB);
+    db=new Map();LIBITEMS.forEach(c=>addClause(c.t,c.text,true));
+    const qs=[];
+    for(const it of items){
+      if(it.dir){for(const m of it.dir.matchAll(/(\w+)\/(\d+)/g))if(!db.has(m[1]+'/'+m[2]))db.set(m[1]+'/'+m[2],[]);continue}
+      if(it.t.t==='c'&&it.t.f==='?-'&&it.t.a.length===1)qs.push({g:it.t.a[0],vars:it.vars});else addClause(it.t,it.text,false)}
+    if(!qs.length)return pintar('No hay consulta que evaluar.',true,['Agrega una línea que empiece con ?- , por ejemplo: ?- miembro(b, [a,b,c]).'],'');
+    let resp=[],ex=[],sal='',bad=false;
+    qs.forEach((q,i)=>{const r=runQuery(q.g,q.vars);
+      resp.push((qs.length>1?'?- '+show(q.g)+'\n':'')+r.ans);if(r.error)bad=true;
+      ex.push(...(qs.length>1?[`— Consulta ${i+1} —`]:[]),...r.ex);sal+=r.out});
+    pintar(resp.join('\n\n'),bad,ex,sal)
+  }catch(e){if(e.perr)return pintar(e.perr,true,[],'');throw e}}
+
+/* ===== Interfaz ===== */
+const $=id=>document.getElementById(id);
+function pintar(resp,err,ex,sal){
+  $('vacio').classList.add('hidden');$('cont').classList.remove('hidden');
+  $('resp').textContent=resp;
+  $('resp').className='border-l-4 rounded p-3 font-mono text-lg whitespace-pre-wrap break-words mb-4 '+(err?'bg-rose-50 border-rose-600 text-rose-700':'bg-emerald-50 border-emerald-600 text-emerald-800');
+  $('sal').textContent=sal;$('bsal').classList.toggle('hidden',!sal);
+  $('exp').innerHTML='';ex.forEach(t=>{const li=document.createElement('li');li.textContent=t;$('exp').appendChild(li)});
+  $('bexp').classList.toggle('hidden',!ex.length)}
+const EJ={
+"Listas: miembro/2":`miembro(X, [X|_]).
+miembro(X, [_|T]) :- miembro(X, T).
+?- miembro(b, [a,b,c]).`,
+"Hechos y reglas: familia":`padre(juan, pedro).
+padre(juan, ana).
+padre(pedro, luis).
+abuelo(X, Z) :- padre(X, Y), padre(Y, Z).
+?- abuelo(juan, Quien).`,
+"Aritmética: factorial":`fact(0, 1).
+fact(N, F) :- N > 0, N1 is N - 1, fact(N1, F1), F is N * F1.
+?- fact(5, R).`,
+"Listas: concatenar":`concatenar([], L, L).
+concatenar([H|T], L, [H|R]) :- concatenar(T, L, R).
+?- concatenar([1,2], [3,4], R), length(R, N).`,
+"Negación como fallo":`ave(tweety).
+ave(pingu).
+pinguino(pingu).
+vuela(X) :- ave(X), \\+ pinguino(X).
+?- vuela(tweety).
+?- vuela(pingu).`,
+"Disyunción":`color(rojo).
+color(azul).
+fruta(manzana).
+interesante(X) :- color(X) ; fruta(X).
+?- interesante(X).`,
+"Corte (!)":`maximo(X, Y, X) :- X >= Y, !.
+maximo(_, Y, Y).
+?- maximo(7, 3, M).`,
+"Corte: backtracking":`num(1). num(2). num(3).
+primero(X) :- num(X), !.
+?- primero(X).
+?- num(X).`};
+$('ej').innerHTML='<option value="">Elegir…</option>'+Object.keys(EJ).map(k=>`<option>${k}</option>`).join('');
+$('ej').onchange=e=>{if(e.target.value)$('codigo').value=EJ[e.target.value]};
+$('enviar').onclick=ejecutar;
+$('limpiar').onclick=()=>{$('codigo').value='';$('ej').value='';$('cont').classList.add('hidden');$('vacio').classList.remove('hidden');$('codigo').focus()};
+$('codigo').addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){e.preventDefault();ejecutar()}});
+</script>
+</body>
+</html>
